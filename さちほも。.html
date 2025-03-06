@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>さちほも。</title>
+  <style>
+    body {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      background-color: #f0f0f0;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      box-sizing: border-box;
+    }
+    textarea {
+      width: 80%;
+      height: 100px;
+      margin: 10px;
+      font-size: 1rem;
+      resize: vertical;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-bottom: 10px;
+    }
+    #result {
+      margin-top: 20px;
+      width: 80%;
+      max-height: 50vh; /* 最大表示領域を設定 */
+      overflow: auto;   /* スクロール可能に */
+      white-space: pre-wrap;
+      font-family: 'Courier New', Courier, monospace;
+      background-color: #ffffff;
+      border: 1px solid #ccc;
+      padding: 10px;
+    }
+    .match {
+      color: green;
+    }
+    /* ギャップもミスマッチと同様に赤色で表示 */
+    .mismatch, .gap {
+      color: red;
+    }
+    .line-number {
+      font-weight: bold;
+      color: black;
+      width: 40px;
+      display: inline-block;
+    }
+    .seq-label {
+      font-weight: bold;
+      color: blue;
+      width: 50px;
+      display: inline-block;
+    }
+    h1 {
+      font-family: 'Hiragino Maru Gothic Pro', 'ヒラギノ丸ゴ Pro W4', 'Hiragino Maru Gothic', sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <h1>さちほも。</h1>
+  <textarea id="sequence1" placeholder="配列1を入力してください"></textarea>
+  <textarea id="sequence2" placeholder="配列2を入力してください"></textarea>
+  <button onclick="compareSequences()">比較</button>
+  <div id="result"></div>
+
+  <script>
+    // DNAの逆相補鎖を求める関数
+    function reverseComplement(seq) {
+      const comp = { 'A': 'T', 'T': 'A', 'G': 'C', 'C': 'G' };
+      let rc = '';
+      for (let i = seq.length - 1; i >= 0; i--) {
+        const base = seq[i];
+        rc += (comp[base] ? comp[base] : base);
+      }
+      return rc;
+    }
+
+    // 局所アライメント（Smith–Waterman法）の実装
+    // 戻り値は [alignedSeq1, alignedSeq2, startPos1, startPos2, maxScore]
+    function localAlignment(seq1, seq2) {
+      const matchScore = 2;
+      const mismatchScore = -1;
+      const gapPenalty = -1;
+      
+      const m = seq1.length;
+      const n = seq2.length;
+      
+      const scoreMatrix = Array.from({ length: m + 1 }, () => Array(n + 1).fill(0));
+      const tracebackMatrix = Array.from({ length: m + 1 }, () => Array(n + 1).fill(''));
+      
+      let maxScore = 0;
+      let maxPos = [0, 0];
+      
+      // スコアマトリクスとトレースバックマトリクスの作成
+      for (let i = 1; i <= m; i++) {
+        for (let j = 1; j <= n; j++) {
+          const scoreDiag = scoreMatrix[i - 1][j - 1] + (seq1[i - 1] === seq2[j - 1] ? matchScore : mismatchScore);
+          const scoreUp = scoreMatrix[i - 1][j] + gapPenalty;
+          const scoreLeft = scoreMatrix[i][j - 1] + gapPenalty;
+          
+          const cellScore = Math.max(0, scoreDiag, scoreUp, scoreLeft);
+          scoreMatrix[i][j] = cellScore;
+          
+          if (cellScore === 0) {
+            tracebackMatrix[i][j] = 'done';
+          } else if (cellScore === scoreDiag) {
+            tracebackMatrix[i][j] = 'diag';
+          } else if (cellScore === scoreUp) {
+            tracebackMatrix[i][j] = 'up';
+          } else if (cellScore === scoreLeft) {
+            tracebackMatrix[i][j] = 'left';
+          }
+          
+          if (cellScore > maxScore) {
+            maxScore = cellScore;
+            maxPos = [i, j];
+          }
+        }
+      }
+      
+      let [i, j] = maxPos;
+      let alignedSeq1 = '';
+      let alignedSeq2 = '';
+      
+      // トレースバックでアライメント復元
+      while (tracebackMatrix[i][j] !== 'done' && scoreMatrix[i][j] !== 0) {
+        if (tracebackMatrix[i][j] === 'diag') {
+          alignedSeq1 = seq1[i - 1] + alignedSeq1;
+          alignedSeq2 = seq2[j - 1] + alignedSeq2;
+          i--;
+          j--;
+        } else if (tracebackMatrix[i][j] === 'up') {
+          alignedSeq1 = seq1[i - 1] + alignedSeq1;
+          alignedSeq2 = '-' + alignedSeq2;
+          i--;
+        } else if (tracebackMatrix[i][j] === 'left') {
+          alignedSeq1 = '-' + alignedSeq1;
+          alignedSeq2 = seq2[j - 1] + alignedSeq2;
+          j--;
+        }
+      }
+      
+      // 元配列におけるアライメント開始位置の推定（複数出現時は最初の出現位置）
+      const startPos1 = seq1.indexOf(alignedSeq1.replace(/-/g, ''));
+      const startPos2 = seq2.indexOf(alignedSeq2.replace(/-/g, ''));
+      
+      return [alignedSeq1, alignedSeq2, startPos1, startPos2, maxScore];
+    }
+    
+    // 入力文字列から全スペース（空白文字）を除去し、すべて大文字に変換する関数
+    function preprocessSequence(seq) {
+      return seq.trim().replace(/\s+/g, '').toUpperCase();
+    }
+    
+    // メインの比較処理
+    function compareSequences() {
+      let seq1 = preprocessSequence(document.getElementById('sequence1').value);
+      let seq2 = preprocessSequence(document.getElementById('sequence2').value);
+      const resultDiv = document.getElementById('result');
+      resultDiv.innerHTML = '';
+      
+      // 通常の配列同士で局所アライメントを実施
+      const alignmentNormal = localAlignment(seq1, seq2);
+      // seq2の逆相補鎖を求め、局所アライメントを実施
+      const seq2_rc = reverseComplement(seq2);
+      const alignmentRC = localAlignment(seq1, seq2_rc);
+      
+      // 最大スコアが高い方を採用する（同一であれば通常版を優先）
+      let alignment, usedRC = false;
+      if (alignmentRC[4] > alignmentNormal[4]) {
+        alignment = alignmentRC;
+        usedRC = true;
+      } else {
+        alignment = alignmentNormal;
+      }
+      
+      let [alignedSeq1, alignedSeq2, startPos1, startPos2] = alignment;
+      let resultHTML = '';
+      
+      // 解析に用いた配列が逆相補鎖の場合、その旨を表示
+      if (usedRC) {
+        resultHTML += "※ 配列2は逆相補鎖として解析しました。\n\n";
+      }
+      
+      // Seq1は通常通り。Seq2は、逆相補鎖の場合は元の配列の末尾側から番号を付ける
+      let currentPos1 = startPos1 + 1;
+      let currentPos2 = usedRC ? seq2.length - startPos2 : startPos2 + 1;
+      
+      // アライメント結果を50文字ごとに分割して表示（各行の先頭にラベルを追加）
+      for (let i = 0; i < alignedSeq1.length; i += 50) {
+        const seq1Segment = alignedSeq1.slice(i, i + 50);
+        const seq2Segment = alignedSeq2.slice(i, i + 50);
+        
+        let line1 = `<span class="seq-label">Seq1:</span><span class="line-number">${currentPos1.toString().padStart(3, '0')}</span> `;
+        let line2 = `<span class="seq-label">Seq2:</span><span class="line-number">${currentPos2.toString().padStart(3, '0')}</span> `;
+        
+        for (let j = 0; j < seq1Segment.length; j++) {
+          const char1 = seq1Segment[j] || ' ';
+          const char2 = seq2Segment[j] || ' ';
+          
+          if (char1 === char2) {
+            line1 += `<span class="match">${char1}</span>`;
+            line2 += `<span class="match">${char2}</span>`;
+          } else if (char1 === '-' || char2 === '-') {
+            line1 += `<span class="gap">${char1}</span>`;
+            line2 += `<span class="gap">${char2}</span>`;
+          } else {
+            line1 += `<span class="mismatch">${char1}</span>`;
+            line2 += `<span class="mismatch">${char2}</span>`;
+          }
+          
+          if ((j + 1) % 10 === 0) {
+            line1 += ' ';
+            line2 += ' ';
+          }
+          
+          // ギャップでなければ、Seq1はインクリメント、Seq2は通常はインクリメント、逆相補の場合はデクリメント
+          if (char1 !== '-') currentPos1++;
+          if (char2 !== '-') {
+            if (usedRC) {
+              currentPos2--;
+            } else {
+              currentPos2++;
+            }
+          }
+        }
+        
+        resultHTML += line1 + '\n' + line2 + '\n\n';
+      }
+      
+      resultDiv.innerHTML = resultHTML;
+    }
+  </script>
+</body>
+</html>
